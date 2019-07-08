@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/globalsign/mgo/bson"
+	"github.com/batmanwjw/mgo/bson"
 )
 
 // coarseTime is used to amortise the cost of querying the timecounter (possibly
@@ -166,7 +166,19 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 					}()
 				}
 				timeSpentWaiting := time.Duration(0)
-				for len(server.liveSockets)-len(server.unusedSockets) >= info.PoolLimit && !timeoutHit {
+				/*
+				 * Before:
+				 *     len(server.liveSockets)-len(server.unusedSockets) >= poolLimit
+				 * Explanation:
+				 *     This is a bug that may cause the connection full. "liveSockets" means
+				 *     unused connections and used connections, "unusedSockets" means unused connections.
+				 *     However, a connection won't be released even if it's an "unused" connection.
+				 *     So this comparision only restrict the used connections but not the total connections.
+				 * After:
+				 *     len(server.liveSockets) >= poolLimit && len(server.unusedSockets) == 0
+				 */
+				// for len(server.liveSockets)-len(server.unusedSockets) >= poolLimit && !timeoutHit {
+				for len(server.liveSockets) >= info.PoolLimit && len(server.unusedSockets) == 0 && !timeoutHit {
 					// We only count time spent in Wait(), and not time evaluating the entire loop,
 					// so that in the happy non-blocking path where the condition above evaluates true
 					// first time, we record a nice round zero wait time.
@@ -185,7 +197,9 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 				// Record that we fetched a connection of of a socket list and how long we spent waiting
 				stats.noticeSocketAcquisition(timeSpentWaiting)
 			} else {
-				if len(server.liveSockets)-len(server.unusedSockets) >= info.PoolLimit {
+				// no socket available
+				// if len(server.liveSockets)-len(server.unusedSockets) >= poolLimit {
+				if len(server.liveSockets) >= info.PoolLimit && len(server.unusedSockets) == 0 {
 					server.Unlock()
 					return nil, false, errPoolLimit
 				}
